@@ -1,0 +1,8 @@
+MINISTRY OF HEAVY INDUSTRIES & PSU SAFETY MANDATES
+REGULATION REF: SAFETY-REG-2025-V2
+Effective Date: 01 January 2025
+
+SECTION 04.2: PRESSURE RELIEF SYSTEM MANDATES
+1. Mandatory Inspection Frequency: All primary overpressure relief valves (PRV) installed on high-pressure steam and hydro-carbon lines must undergo comprehensive physical inspection and bench testing at intervals not exceeding twelve (12) calendar months.
+2. Sign-Off Authorization: No pressure relief equipment shall be certified for active service without explicit double sign-off from both the primary inspector and the certified plant supervisor.
+3. Non-Compliance Protocols: Any relief valve with an expired inspection window or unverified maintenance sign-off shall be immediately flagged as HIGH RISK and placed on operational hold.

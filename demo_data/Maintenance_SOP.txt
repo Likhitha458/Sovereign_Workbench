@@ -1,0 +1,11 @@
+STANDARD OPERATING PROCEDURE: EQUIPMENT MAINTENANCE & SIGN-OFF
+SOP NUMBER: SOP-MAINT-04-REV3
+Department: Maintenance & Asset Integrity
+
+SECTION 02.1: MAINTENANCE SIGN-OFF AND APPROVAL WORKFLOW
+1. Pre-Commissioning Verification: Prior to releasing any unit (including Unit 04) for active operational duty, the responsible technician must submit the completed physical inspection log.
+2. Documentation Requirements:
+   a) Hydrostatic pressure test logs attached.
+   b) Component replacement certificates verified.
+   c) Responsible engineer's physical or digital signature stamped in log section 04-B.
+3. Approval Notes: An official Approval Note summarizing findings, regulatory compliance, and risk mitigations must be prepared and reviewed prior to supervisor authorization.

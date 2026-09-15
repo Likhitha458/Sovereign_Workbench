@@ -1,0 +1,14 @@
+EQUIPMENT TECHNICAL MANUAL - UNIT 04 OVERPRESSURE ASSEMBLY
+MODEL: PRV-9000-HEAVY
+Manufacturer: Sovereign Engineering Ltd.
+
+TECHNICAL SPECIFICATIONS:
+- Nominal Diameter: 250 mm (10 inches)
+- Maximum Allowable Working Pressure (MAWP): 50.0 bar
+- Factory Set Trip Pressure: 42.5 bar
+- Temperature Range: -20°C to +350°C
+- Body Material: Forged Stainless Steel 316L
+
+OPERATIONAL SAFETY LIMITS:
+- Operating pressures must remain below 42.5 bar during standard continuous operation.
+- Hydrostatic test pressure limit: 1.5 x MAWP (75.0 bar max).

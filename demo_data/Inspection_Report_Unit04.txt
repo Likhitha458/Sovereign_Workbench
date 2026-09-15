@@ -1,0 +1,19 @@
+SOVEREIGN INDUSTRIAL INSPECTION REPORT
+Date of Inspection: 12 September 2026
+Facility: MRPL Refinery Complex, Substation 04
+Equipment Tag: V-04-PRV (Unit 04 Overpressure Relief Valve)
+Inspected By: Senior Engineer Abhinaya
+
+EXECUTIVE SUMMARY:
+Routine annual inspection performed on Unit 04 Pressure Relief Valve assembly.
+
+INSPECTION FINDINGS:
+1. Pressure relief valve set point verified at 42.5 bar.
+2. Minor surface oxidation observed on flange bolts B-04 and B-05.
+3. The previous annual inspection expired on 30 August 2026. Current inspection status is OVERDUE.
+4. The maintenance log section 04-B lacks the mandatory supervising engineer signature.
+
+RECOMMENDATIONS:
+- Replace flange gaskets and apply anti-corrosion coating to bolts.
+- Obtain certified lead engineer sign-off before bringing Unit 04 back online.
+- Perform hydrostatic pressure test at 45.0 bar test pressure.
