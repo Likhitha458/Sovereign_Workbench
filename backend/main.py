@@ -73,12 +73,80 @@ DOC_GENERATION_TRIGGERS = [
     "draft document", "draft report", "compile report", "compile document",
 ]
 
-def _auto_title(prompt: str) -> str:
-    """Generate a short chat title from a user prompt."""
-    clean = prompt.strip().replace("\n", " ")
-    if len(clean) > 40:
-        clean = clean[:37] + "..."
-    return clean if clean else "Industrial Analysis"
+async def _generate_smart_title(prompt: str) -> str:
+    """
+    Generate a concise, intelligent 2-4 word topic title using LLM understanding or smart topic extraction.
+    """
+    if not prompt or not prompt.strip():
+        return "Industrial Analysis"
+
+    clean_text = prompt.strip().replace("\n", " ")
+
+    # Try calling fast LLM prompt summarizer
+    try:
+        title_prompt = (
+            f"Analyze the user question below and summarize what the user is asking about into a concise 2 to 4 word topic title.\n"
+            f"Do NOT use lead-ins like 'Question', 'User', 'Title', 'What', 'How', 'Show', 'See', or quotation marks.\n"
+            f"Return ONLY the 2 to 4 word topic title.\n\n"
+            f"User Question: \"{clean_text}\"\n\n"
+            f"Topic Title:"
+        )
+        available = await ollama_client.get_available_models()
+        if available:
+            model = ollama_client.resolve_model_tag("general", available)
+            llama_title = await ollama_client._call_ollama(model, title_prompt, timeout=8.0)
+            if llama_title:
+                clean_title = llama_title.strip(" \"'\n:.").replace("\n", " ")
+                words = [w for w in clean_title.split() if w]
+                if 1 <= len(words) <= 5:
+                    return " ".join(words).title()
+    except Exception as e:
+        logger.warning(f"LLM title generation exception: {e}")
+
+    # ── Fallback Rule-Based Semantic Topic Extractor ─────────────────────────
+    lower_text = clean_text.lower()
+
+    # Image / Vision specific prompts
+    if any(kw in lower_text for kw in ["image", "picture", "photo", "see in", "what is in", "look at"]):
+        if "code" in lower_text:
+            return "Image Code Analysis"
+        if "diagram" in lower_text or "chart" in lower_text:
+            return "Diagram Visual Analysis"
+        return "Image Content Analysis"
+
+    if "python" in lower_text or "code" in lower_text or "script" in lower_text:
+        return "Python Code Generation"
+
+    if "inspection" in lower_text or "unit" in lower_text:
+        return "Safety Inspection Review"
+
+    if "pressure" in lower_text or "valve" in lower_text or "pump" in lower_text:
+        return "Pressure Valve Analysis"
+
+    prefixes = [
+        "what you can see in the", "what can you see in", "what you can see in", "what is in the", "what is in",
+        "what are the mandatory", "what are the", "what is the", "what are", "what is",
+        "how do i", "how to", "can you please", "could you please", "can you", "could you",
+        "write python code to", "write code to", "write a python script to",
+        "generate a report for", "generate a report on", "review unit", "review the",
+        "summarize the", "explain how to", "explain the", "please provide", "give me a", "tell me about"
+    ]
+
+    topic = clean_text
+    for p in sorted(prefixes, key=len, reverse=True):
+        if lower_text.startswith(p):
+            topic = clean_text[len(p):].strip(" ?,.:;-")
+            break
+
+    words = [w for w in topic.split() if w]
+    if not words:
+        return "Industrial Analysis"
+
+    if len(words) > 4:
+        words = words[:4]
+
+    title = " ".join(words).title()
+    return title if title else "Industrial Analysis"
 
 def _is_doc_generation_request(prompt: str) -> bool:
     prompt_lower = prompt.lower()
@@ -139,14 +207,15 @@ async def send_chat_message(req: SendMessageRequest):
     attachments = req.attachments or []
 
     # ── Chat title management ────────────────────────────────────────────────
-    # Create or auto-title the chat based on the first user message
+    # Create or auto-title the chat based on smart prompt understanding
     chats = get_chats()
     existing_chat = next((c for c in chats if c["id"] == chat_id), None)
+    smart_title = await _generate_smart_title(user_prompt)
+
     if not existing_chat:
-        create_chat(chat_id, _auto_title(user_prompt))
-    elif existing_chat.get("title", "").strip() in ("", "New Chat", "New Chat..."):
-        # Auto-title a chat that was pre-created with a default name
-        rename_chat(chat_id, _auto_title(user_prompt))
+        create_chat(chat_id, smart_title)
+    elif existing_chat.get("title", "").strip() in ("", "New Chat", "New Chat...", "Industrial Analysis"):
+        rename_chat(chat_id, smart_title)
 
     # ── Save user message ────────────────────────────────────────────────────
     user_msg_id = str(uuid.uuid4())
@@ -208,27 +277,28 @@ async def send_chat_message(req: SendMessageRequest):
                     if img_data.get("base64"):
                         attached_images.append(img_data["base64"])
                     ocr_text = img_data.get("text", "")
-                    meta = img_data.get("metadata", {})
 
-                    image_context = (
-                        f"Attached Image: {filename}\n"
-                        f"Dimensions: {meta.get('width', '?')}x{meta.get('height', '?')} | "
-                        f"Format: {meta.get('format', '?')} | Mode: {meta.get('mode', '?')}\n"
-                        f"Extracted Text / Visual Description:\n{ocr_text}"
-                    )
-
-                    context_passages.append({
-                        "filename": filename,
-                        "page": 1,
-                        "source": f"Attached Image ({filename})",
-                        "snippet": image_context
-                    })
-                    source_citations.append({
-                        "filename": filename,
-                        "page": 1,
-                        "source": f"Attached Image: {filename}",
-                        "snippet": ocr_text[:300] if ocr_text else f"Image file: {filename}"
-                    })
+                    # Only add OCR text if actual text was extracted from image
+                    if ocr_text and ocr_text.strip():
+                        context_passages.append({
+                            "filename": filename,
+                            "page": 1,
+                            "source": f"OCR Text ({filename})",
+                            "snippet": ocr_text
+                        })
+                        source_citations.append({
+                            "filename": filename,
+                            "page": 1,
+                            "source": f"Attached Image: {filename}",
+                            "snippet": ocr_text[:300]
+                        })
+                    else:
+                        source_citations.append({
+                            "filename": filename,
+                            "page": 1,
+                            "source": f"Attached Image: {filename}",
+                            "snippet": f"Visual Image: {filename} (passed to vision model)"
+                        })
                 else:
                     # PDF / Text Document processing
                     try:
@@ -316,13 +386,35 @@ async def send_chat_message(req: SendMessageRequest):
             output_filename=auto_docx_filename
         )
 
-    # ── Generate AI Response ──────────────────────────────────────────────────
+    # Auto-detect mentioned files in user prompt if attachments list is empty
+    if not attachments:
+        prompt_lower = user_prompt.lower()
+        # Scan upload directory and demo_data directory for matching filenames
+        search_dirs = [settings.UPLOAD_DIR, settings.BASE_DIR / "demo_data"]
+        for sdir in search_dirs:
+            if not sdir.exists():
+                continue
+            for fpath in sdir.glob("*"):
+                fname = fpath.name.lower()
+                clean_name = fname.split("_", 1)[-1] if "_" in fname else fname
+                stem_name = os.path.splitext(clean_name)[0]
+                if (clean_name in prompt_lower or stem_name in prompt_lower or (len(stem_name) > 4 and stem_name in prompt_lower)) and fpath.is_file():
+                    ext = fpath.suffix.lower()
+                    ftype = "image/png" if ext in [".png", ".jpg", ".jpeg", ".webp"] else "application/pdf"
+                    attachments.append({
+                        "filename": clean_name,
+                        "file_path": str(fpath),
+                        "file_type": ftype
+                    })
+                    logger.info(f"Auto-attached referenced file '{fpath.name}' based on prompt match.")
+                    break
+
     system_prompt = (
         "You are Sovereign AI Workbench, an offline local AI assistant. "
         "You HAVE FULL ACCESS to all attached user documents, images, and context passages provided below. "
-        "Strictly answer the user's query based ONLY on the current provided context. "
-        "Do NOT mix information from unrelated files. "
-        "If an image is attached, describe or analyze it based on the visual content and OCR text provided."
+        "Strictly answer the user's query directly based ONLY on the current provided context or image data. "
+        "Do NOT generate Python code, PIL/Pillow scripts, or code blocks UNLESS the user explicitly requests code (e.g. 'write code', 'python script', 'generate code'). "
+        "If asked to extract information from an inspection tag, image, or document, extract and present the requested fields directly in clean Markdown format (bullet points or tables)."
     )
 
     response_data = await ollama_client.generate_response(

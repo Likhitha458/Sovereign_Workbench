@@ -17,6 +17,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { Message, Attachment, SourceCitation, ExecutionResult } from '../types';
+import { FormattedMarkdown } from '../components/FormattedMarkdown';
 
 interface ChatsViewProps {
     messages: Message[];
@@ -249,13 +250,9 @@ export const ChatsView: React.FC<ChatsViewProps> = ({
                                                 </div>
                                             )}
 
-                                            {/* Main Message Text */}
+                                            {/* Main Message Text with Formatted Markdown Rendering */}
                                             <div className="bg-white border border-canvas-border p-5 rounded-card shadow-xs text-sm text-[#172B2B] leading-relaxed space-y-4">
-                                                <div className="prose prose-sm max-w-none space-y-2">
-                                                    {msg.content.split('\n\n').map((para, i) => (
-                                                        <p key={i} className="whitespace-pre-wrap">{para}</p>
-                                                    ))}
-                                                </div>
+                                                <FormattedMarkdown content={msg.content} />
 
                                                 {/* Source Citations Box */}
                                                 {msg.source_citations && msg.source_citations.length > 0 && (

@@ -12,10 +12,14 @@ class ModelRouter:
     """
 
     CODE_KEYWORDS = [
-        "python", "javascript", "code", "function", "script", "algorithm",
-        "calculate", "equation", "formula", "sql", "class", "def ", "import ",
-        "return ", "debug", "array", "docker", "json", "regex", "pressure drop",
-        "darcy", "reynolds", "velocity", "flow rate", "unit conversion"
+        "write python", "python code", "write code", "write a script", "write script",
+        "code snippet", "write function", "def ", "import ", "sql query", "dockerfile",
+        "create python script", "javascript code", "create code", "generate code"
+    ]
+
+    EXPLICIT_CODE_REQUESTS = [
+        "write code", "python code", "write a script", "create code", "generate script",
+        "python script", "write python", "code to extract", "script to extract"
     ]
 
     def route(
@@ -34,6 +38,12 @@ class ModelRouter:
                 if file_type.startswith("image/") or any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp"]):
                     has_image = True
                     break
+
+        # Check prompt text for image filename or visual keywords
+        prompt_lower = prompt.lower()
+        if any(ext in prompt_lower for ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]) or \
+           any(kw in prompt_lower for kw in ["tag", "image", "picture", "photo", "inspection tag", "mrpl_tag"]):
+            has_image = True
 
         # Handle manual override
         if selected_option != "Auto":
@@ -60,21 +70,22 @@ class ModelRouter:
                 }
 
         # Auto Routing Logic
-        if has_image:
+        is_explicit_code = any(req in prompt_lower for req in self.EXPLICIT_CODE_REQUESTS)
+
+        if has_image and not is_explicit_code:
             return {
                 "model_id": settings.VISION_MODEL,
                 "model_display": "Qwen2.5-VL",
                 "routing_badge": "Auto → Qwen2.5-VL",
-                "reason": "Image attachment detected. Routed to Vision Model."
+                "reason": "Image attachment or inspection tag detected. Routed to Vision Model."
             }
 
-        prompt_lower = prompt.lower()
-        if any(kw in prompt_lower for kw in self.CODE_KEYWORDS):
+        if is_explicit_code or (any(kw in prompt_lower for kw in self.CODE_KEYWORDS) and not has_image):
             return {
                 "model_id": settings.CODER_MODEL,
                 "model_display": "Qwen3-Coder",
                 "routing_badge": "Auto → Qwen3-Coder",
-                "reason": "Code generation or mathematical computation detected. Routed to Coding Model."
+                "reason": "Explicit code generation request detected. Routed to Coding Model."
             }
 
         # Default General Model

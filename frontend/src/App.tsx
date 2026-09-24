@@ -6,9 +6,13 @@ import { DocumentsView } from './views/DocumentsView';
 import { KnowledgeBaseView } from './views/KnowledgeBaseView';
 import { AgentTasksView } from './views/AgentTasksView';
 import { SettingsView } from './views/SettingsView';
+import { LoginView } from './views/LoginView';
 import { Chat, Message, Attachment } from './types';
 
 export const App: React.FC = () => {
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+        return localStorage.getItem('sovereign_auth') === 'true';
+    });
     const [currentView, setCurrentView] = useState<string>('chats');
     const [chats, setChats] = useState<Chat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -16,16 +20,28 @@ export const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
 
     useEffect(() => {
-        fetchChats();
-    }, []);
+        if (isAuthenticated) {
+            fetchChats();
+        }
+    }, [isAuthenticated]);
 
     useEffect(() => {
-        if (activeChatId) {
+        if (isAuthenticated && activeChatId) {
             fetchMessages(activeChatId);
         } else {
             setMessages([]);
         }
-    }, [activeChatId]);
+    }, [activeChatId, isAuthenticated]);
+
+    const handleLoginSuccess = () => {
+        localStorage.setItem('sovereign_auth', 'true');
+        setIsAuthenticated(true);
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('sovereign_auth');
+        setIsAuthenticated(false);
+    };
 
     const fetchChats = async () => {
         try {
@@ -175,6 +191,10 @@ export const App: React.FC = () => {
         }
     };
 
+    if (!isAuthenticated) {
+        return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    }
+
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-[#F7F9F9]">
             <Sidebar
@@ -190,7 +210,7 @@ export const App: React.FC = () => {
             />
 
             <div className="flex-1 flex flex-col h-full overflow-hidden">
-                <Header title={getViewTitle()} />
+                <Header title={getViewTitle()} onLogout={handleLogout} />
 
                 {currentView === 'chats' && (
                     <ChatsView

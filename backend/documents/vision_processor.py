@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 def extract_image_details(image_path: str) -> Dict[str, Any]:
     """
-    Extracts visual text (OCR) and metadata from images for local LLM reasoning.
-    Returns base64, OCR text, and detailed metadata for vision-capable models.
+    Extracts base64 image data and pure visual text (OCR) from images.
+    Returns base64 and clean OCR text for vision-capable models without polluting metadata into context strings.
     """
     if not os.path.exists(image_path):
         return {"text": "", "base64": None, "metadata": {}}
@@ -37,29 +37,19 @@ def extract_image_details(image_path: str) -> Dict[str, Any]:
                 "file_size_kb": round(os.path.getsize(image_path) / 1024, 1)
             }
 
-        # Attempt pytesseract OCR if installed locally
+        # Extract OCR text using sovereign OCR engine fallback
         try:
-            import pytesseract
-            raw_ocr = pytesseract.image_to_string(Image.open(image_path)).strip()
-            if raw_ocr and len(raw_ocr) > 5:
-                ocr_text = raw_ocr
-                logger.info(f"Pytesseract OCR extracted {len(ocr_text)} chars from {os.path.basename(image_path)}")
-            else:
-                raise ValueError("OCR returned empty/short text")
+            from backend.documents.ocr import extract_text_from_image
+            ocr_res = extract_text_from_image(image_path)
+            ocr_text = ocr_res.get("text", "").strip()
+            logger.info(f"OCR extracted {len(ocr_text)} chars from {os.path.basename(image_path)}")
         except Exception as e:
-            logger.info(f"Pytesseract not active: {e}. Using image description as context.")
-            ocr_text = (
-                f"Attached image: '{os.path.basename(image_path)}'\n"
-                f"Dimensions: {width}x{height} pixels\n"
-                f"Format: {format_name}, Color Mode: {mode}\n"
-                f"File size: {metadata.get('file_size_kb', '?')} KB\n"
-                f"This image has been sent to the vision model for analysis. "
-                f"Please analyze the visual content and answer the user's question based on what you see in the image."
-            )
+            logger.info(f"OCR extraction exception for {image_path}: {e}")
+            ocr_text = ""
 
     except Exception as err:
         logger.error(f"Image processing error for {image_path}: {err}")
-        ocr_text = f"Image file: {os.path.basename(image_path)}. Unable to extract details."
+        ocr_text = ""
 
     return {
         "text": ocr_text,
