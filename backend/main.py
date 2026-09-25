@@ -61,52 +61,21 @@ class SearchKnowledgeBaseRequest(BaseModel):
 
 # ─── Helper ─────────────────────────────────────────────────────────────────
 
-DOC_GENERATION_TRIGGERS = [
-    "generate report", "create doc", "word doc", "approval note",
-    "downloadable doc", "make report", "generate approval", "export doc",
-    "generate document", "create document", "give me document",
-    "give document", "write document", "make document", "make a document",
-    "produce document", "produce report", "generate docx", "create report",
-    "save document", "download document", "export report", "approval report",
-    "create approval", "write approval", "write report",
-    "inspection report", "generate an approval", "create an approval",
-    "draft document", "draft report", "compile report", "compile document",
+EXPLICIT_GENERATE_ACTION_VERBS = [
+    "generate", "create", "make", "export", "download", "produce", "draft", "compile", "give me a", "build a document"
+]
+
+EXPLICIT_DOC_NOUNS = [
+    "pdf", "ppt", "pptx", "word doc", "docx", "report", "presentation", "slides", "approval note", "document"
 ]
 
 async def _generate_smart_title(prompt: str) -> str:
-    """
-    Generate a concise, intelligent 2-4 word topic title using LLM understanding or smart topic extraction.
-    """
     if not prompt or not prompt.strip():
         return "Industrial Analysis"
 
     clean_text = prompt.strip().replace("\n", " ")
-
-    # Try calling fast LLM prompt summarizer
-    try:
-        title_prompt = (
-            f"Analyze the user question below and summarize what the user is asking about into a concise 2 to 4 word topic title.\n"
-            f"Do NOT use lead-ins like 'Question', 'User', 'Title', 'What', 'How', 'Show', 'See', or quotation marks.\n"
-            f"Return ONLY the 2 to 4 word topic title.\n\n"
-            f"User Question: \"{clean_text}\"\n\n"
-            f"Topic Title:"
-        )
-        available = await ollama_client.get_available_models()
-        if available:
-            model = ollama_client.resolve_model_tag("general", available)
-            llama_title = await ollama_client._call_ollama(model, title_prompt, timeout=8.0)
-            if llama_title:
-                clean_title = llama_title.strip(" \"'\n:.").replace("\n", " ")
-                words = [w for w in clean_title.split() if w]
-                if 1 <= len(words) <= 5:
-                    return " ".join(words).title()
-    except Exception as e:
-        logger.warning(f"LLM title generation exception: {e}")
-
-    # ── Fallback Rule-Based Semantic Topic Extractor ─────────────────────────
     lower_text = clean_text.lower()
 
-    # Image / Vision specific prompts
     if any(kw in lower_text for kw in ["image", "picture", "photo", "see in", "what is in", "look at"]):
         if "code" in lower_text:
             return "Image Code Analysis"
@@ -149,8 +118,18 @@ async def _generate_smart_title(prompt: str) -> str:
     return title if title else "Industrial Analysis"
 
 def _is_doc_generation_request(prompt: str) -> bool:
-    prompt_lower = prompt.lower()
-    return any(k in prompt_lower for k in DOC_GENERATION_TRIGGERS)
+    prompt_lower = prompt.lower().strip()
+
+    # Do NOT trigger file generation for QA questions about PDFs, photos, or documents
+    if any(q_word in prompt_lower for q_word in ["what is in", "what are", "explain", "summarize", "read", "inspect", "show me", "analyze"]):
+        if not any(v in prompt_lower for v in ["generate a pdf", "generate a ppt", "generate a docx", "generate a report", "create a pdf", "create a ppt", "create a docx", "export pdf", "export ppt", "download pdf"]):
+            return False
+
+    has_verb = any(v in prompt_lower for v in EXPLICIT_GENERATE_ACTION_VERBS)
+    has_noun = any(n in prompt_lower for n in EXPLICIT_DOC_NOUNS)
+
+    return has_verb and has_noun
+
 
 # ─── API Endpoints ──────────────────────────────────────────────────────────
 
@@ -206,8 +185,6 @@ async def send_chat_message(req: SendMessageRequest):
     user_prompt = req.message
     attachments = req.attachments or []
 
-    # ── Chat title management ────────────────────────────────────────────────
-    # Create or auto-title the chat based on smart prompt understanding
     chats = get_chats()
     existing_chat = next((c for c in chats if c["id"] == chat_id), None)
     smart_title = await _generate_smart_title(user_prompt)
@@ -217,7 +194,6 @@ async def send_chat_message(req: SendMessageRequest):
     elif existing_chat.get("title", "").strip() in ("", "New Chat", "New Chat...", "Industrial Analysis"):
         rename_chat(chat_id, smart_title)
 
-    # ── Save user message ────────────────────────────────────────────────────
     user_msg_id = str(uuid.uuid4())
     add_message(
         msg_id=user_msg_id,
@@ -227,7 +203,6 @@ async def send_chat_message(req: SendMessageRequest):
         attachments=attachments
     )
 
-    # ── Model routing ────────────────────────────────────────────────────────
     has_image = any(
         att.get("file_type", "").startswith("image/") or
         att.get("filename", "").lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
@@ -243,7 +218,6 @@ async def send_chat_message(req: SendMessageRequest):
     model_to_use = routing_info["model_id"]
     routing_badge = routing_info["routing_badge"]
 
-    # ── Attachment processing (STRICT CONTEXT ISOLATION) ─────────────────────
     source_citations = []
     context_passages = []
     attached_images = []
@@ -254,14 +228,11 @@ async def send_chat_message(req: SendMessageRequest):
             filename = att.get("filename", "attached_file")
             doc_id = att.get("id", "")
 
-            # Resolve file path if not explicitly provided
             if not att_path or not os.path.exists(att_path):
-                # Try matching by doc_id prefix
                 if doc_id:
                     matching = list(settings.UPLOAD_DIR.glob(f"{doc_id}_*"))
                     if matching:
                         att_path = str(matching[0])
-                # Fall back to filename suffix match
                 if not att_path or not os.path.exists(att_path):
                     matching_files = list(settings.UPLOAD_DIR.glob(f"*{filename}"))
                     if matching_files:
@@ -270,7 +241,6 @@ async def send_chat_message(req: SendMessageRequest):
             if att_path and os.path.exists(att_path):
                 file_ext = os.path.splitext(filename)[1].lower()
 
-                # Image processing & OCR
                 if file_ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
                     from backend.documents.vision_processor import extract_image_details
                     img_data = extract_image_details(att_path)
@@ -278,7 +248,6 @@ async def send_chat_message(req: SendMessageRequest):
                         attached_images.append(img_data["base64"])
                     ocr_text = img_data.get("text", "")
 
-                    # Only add OCR text if actual text was extracted from image
                     if ocr_text and ocr_text.strip():
                         context_passages.append({
                             "filename": filename,
@@ -290,40 +259,68 @@ async def send_chat_message(req: SendMessageRequest):
                             "filename": filename,
                             "page": 1,
                             "source": f"Attached Image: {filename}",
-                            "snippet": ocr_text[:300]
+                            "snippet": ocr_text[:400]
                         })
                     else:
+                        # No OCR text but image is still attached — let vision model handle it
+                        meta = img_data.get("metadata", {})
+                        img_desc = (
+                            f"Image file: {filename}"
+                            + (f" ({meta.get('width')}x{meta.get('height')} px, {meta.get('format')})" if meta else "")
+                        )
+                        context_passages.append({
+                            "filename": filename,
+                            "page": 1,
+                            "source": f"Attached Image: {filename}",
+                            "snippet": img_desc
+                        })
                         source_citations.append({
                             "filename": filename,
                             "page": 1,
                             "source": f"Attached Image: {filename}",
-                            "snippet": f"Visual Image: {filename} (passed to vision model)"
+                            "snippet": f"Visual Image: {filename} (passed to vision model for analysis)"
                         })
+
                 else:
-                    # PDF / Text Document processing
                     try:
                         pages = extract_document_pages(att_path)
-                        doc_text = "\n".join([p["text"] for p in pages if p.get("text")])
-                        if doc_text.strip():
-                            # Provide up to 8000 chars so model has enough context
+                        # Build per-page passages so model can cite page numbers
+                        total_added = 0
+                        for pg in pages:
+                            pg_text = pg.get("text", "").strip()
+                            if not pg_text:
+                                continue
+                            # Limit total context to ~20000 chars across all pages
+                            remaining = 20000 - total_added
+                            if remaining <= 0:
+                                break
+                            chunk = pg_text[:remaining]
                             context_passages.append({
                                 "filename": filename,
-                                "page": 1,
-                                "source": f"Current Attachment ({filename})",
-                                "snippet": doc_text[:8000]
+                                "page": pg.get("page", 1),
+                                "source": f"{filename} — Page {pg.get('page', 1)}",
+                                "snippet": chunk
                             })
+                            total_added += len(chunk)
+                        if context_passages:
+                            first_snippet = context_passages[0]["snippet"]
                             source_citations.append({
                                 "filename": filename,
                                 "page": 1,
-                                "source": f"Current Attachment: {filename}",
-                                "snippet": doc_text[:300]
+                                "source": f"Attached Document: {filename}",
+                                "snippet": first_snippet[:400]
+                            })
+                        elif not pages:
+                            # No text extracted — note it
+                            context_passages.append({
+                                "filename": filename,
+                                "page": 1,
+                                "source": f"Attachment: {filename}",
+                                "snippet": f"Could not extract text from {filename}. File may be scanned or encrypted."
                             })
                     except Exception as e:
                         logger.warning(f"Error parsing attachment {filename}: {e}")
-            else:
-                logger.warning(f"Attachment file not found on disk: {filename} (path={att_path})")
 
-    # ONLY query ChromaDB RAG if NO user attachment was provided (strict context isolation)
     elif "coder" not in model_to_use.lower() and not has_image:
         rag_passages = vector_store.query(user_prompt, top_k=3)
         if rag_passages:
@@ -336,55 +333,63 @@ async def send_chat_message(req: SendMessageRequest):
                     "snippet": p["snippet"]
                 })
 
-    # ── Agentic Document Generation ──────────────────────────────────────────
     auto_docx_path = None
     auto_docx_filename = None
 
     if _is_doc_generation_request(user_prompt):
-        from backend.agent.approval_note import generate_approval_docx
+        from backend.agent.approval_note import generate_approval_docx, generate_approval_pdf, generate_approval_pptx
 
-        # Extract unit / topic name dynamically
+        prompt_lower = user_prompt.lower()
         unit_label = "Industrial Task"
         for word in user_prompt.split():
             clean_word = word.strip(".,;:()")
-            if any(kw in clean_word.lower() for kw in ["unit", "valve", "pump", "report", "equipment", "asset"]):
+            if any(kw in clean_word.lower() for kw in ["unit", "valve", "pump", "report", "equipment", "asset", "system"]):
                 unit_label = clean_word.capitalize()
                 break
 
-        # Use first attachment name as context if available
         if attachments:
             unit_label = attachments[0].get("filename", unit_label).split(".")[0].replace("_", " ")
 
-        auto_docx_filename = f"Approval_Note_{unit_label.replace(' ', '_')}.docx"
-
-        # Build detailed findings from available context
         findings = [{
             "id": "F-01",
-            "title": f"AI-generated analysis for: {unit_label}",
+            "title": f"Autonomous Analysis for {unit_label}",
             "severity": "HIGH",
             "status": "COMPLETED",
-            "ref": "Sovereign AI Workbench — Local Agent Engine",
-            "detail": (
-                f"Generated formatted compliance document based on prompt analysis. "
-                f"Source context from {len(context_passages)} document(s) processed."
-            )
+            "ref": "Sovereign AI Engine",
+            "detail": f"Processed findings and context for: '{user_prompt[:200]}'"
         }]
 
-        auto_docx_path = generate_approval_docx(
-            unit_id=unit_label,
-            summary=f"Autonomous Analysis & Action Plan generated for: '{user_prompt[:300]}'",
-            findings=findings,
-            regulatory_refs=[
-                "Safety Regulation 2025 — Section 04",
-                "Local Maintenance SOP — Section 02.1"
-            ],
-            recommendations=[
-                "Review generated document with a certified supervisory engineer.",
-                "Execute local sign-off procedures before unit deployment.",
-                "Cross-verify all findings against original source documents."
-            ],
-            output_filename=auto_docx_filename
-        )
+        if "pdf" in prompt_lower:
+            auto_docx_filename = f"Approval_Report_{unit_label.replace(' ', '_')}.pdf"
+            auto_docx_path = generate_approval_pdf(
+                unit_id=unit_label,
+                summary=f"Autonomous PDF Report generated for: '{user_prompt[:300]}'",
+                findings=findings,
+                regulatory_refs=["Safety Regulation 2025 — Section 04"],
+                recommendations=["Perform certified engineering sign-off."],
+                output_filename=auto_docx_filename
+            )
+        elif any(kw in prompt_lower for kw in ["ppt", "pptx", "presentation", "slides", "powerpoint"]):
+            auto_docx_filename = f"Approval_Deck_{unit_label.replace(' ', '_')}.pptx"
+            auto_docx_path = generate_approval_pptx(
+                unit_id=unit_label,
+                summary=f"Autonomous Presentation Deck generated for: '{user_prompt[:300]}'",
+                findings=findings,
+                regulatory_refs=["Safety Regulation 2025 — Section 04"],
+                recommendations=["Perform certified engineering sign-off."],
+                output_filename=auto_docx_filename
+            )
+        else:
+            auto_docx_filename = f"Approval_Note_{unit_label.replace(' ', '_')}.docx"
+            auto_docx_path = generate_approval_docx(
+                unit_id=unit_label,
+                summary=f"Autonomous Approval Note generated for: '{user_prompt[:300]}'",
+                findings=findings,
+                regulatory_refs=["Safety Regulation 2025 — Section 04"],
+                recommendations=["Perform certified engineering sign-off."],
+                output_filename=auto_docx_filename
+            )
+
 
     # Auto-detect mentioned files in user prompt if attachments list is empty
     if not attachments:
@@ -410,11 +415,14 @@ async def send_chat_message(req: SendMessageRequest):
                     break
 
     system_prompt = (
-        "You are Sovereign AI Workbench, an offline local AI assistant. "
-        "You HAVE FULL ACCESS to all attached user documents, images, and context passages provided below. "
-        "Strictly answer the user's query directly based ONLY on the current provided context or image data. "
-        "Do NOT generate Python code, PIL/Pillow scripts, or code blocks UNLESS the user explicitly requests code (e.g. 'write code', 'python script', 'generate code'). "
-        "If asked to extract information from an inspection tag, image, or document, extract and present the requested fields directly in clean Markdown format (bullet points or tables)."
+        "You are Sovereign AI Workbench, a highly capable AI assistant for industrial, engineering, and general queries. "
+        "When document context is provided, you MUST answer the user's question DIRECTLY from that document content. "
+        "Quote specific facts, figures, and sentences from the provided document passages. "
+        "Do NOT give generic responses when document content is available — use the actual text. "
+        "Do NOT generate Python code or scripts UNLESS the user explicitly requests code (e.g. 'write code', 'python script', 'generate code'). "
+        "For image/photo queries: describe what is visible, extract any text or labels, and identify any anomalies. "
+        "For document queries: find the exact relevant information in the provided passages and cite page numbers. "
+        "Be direct, comprehensive, and cite sources."
     )
 
     response_data = await ollama_client.generate_response(
@@ -604,8 +612,15 @@ async def download_approval_note(filename: str):
     file_path = settings.DOWNLOAD_DIR / filename
     if file_path.exists():
         media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        if filename.endswith(".txt"):
+        if filename.endswith(".pdf"):
+            media_type = "application/pdf"
+        elif filename.endswith(".pptx"):
+            media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        elif filename.endswith(".txt"):
             media_type = "text/plain"
+        elif filename.endswith(".csv"):
+            media_type = "text/csv"
+
         return FileResponse(
             path=str(file_path),
             filename=filename,
